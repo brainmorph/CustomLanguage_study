@@ -1,0 +1,139 @@
+CustomLanguage_study — Design Plan
+====================================
+Last updated: 2026-06-23
+
+================================================================================
+PROJECT GOAL
+================================================================================
+Build a simple, educational virtual machine modeled on the earliest computers.
+Everything is traceable to the bit level. All state lives in plain text files
+so a person can open RAM.txt at any moment and see exactly what the machine
+holds — no debugger required, no binary blobs.
+
+Purpose: purely educational. The goal is to re-experience the thought patterns
+and constraints that early machine designers faced (circa 1948–1955).
+
+================================================================================
+LOCKED DECISIONS
+================================================================================
+
+[D01] Implementation language: C#
+[D02] Purpose: educational/exploratory — no production use
+[D03] Memory unit: 8-bit byte
+[D04] Bit representation: literal ASCII '0' and '1' characters in text files
+[D05] Two-file memory model:
+        ROM.txt  — the program (read-only during execution)
+        RAM.txt  — data/state (fixed size, mutated in-place during execution)
+[D06] RAM is fixed size — allocated once, never grows or shrinks
+[D07] Instruction style: accumulator machine (single accumulator register),
+      modeled loosely on Manchester Baby / EDSAC era (earliest real computers)
+[D08] Addressing: pure numeric (no named labels — phase 1)
+
+================================================================================
+OPEN QUESTIONS (to resolve before implementation)
+================================================================================
+
+[Q01] INSTRUCTION FORMAT — two candidates:
+
+      Option A — packed single-byte instruction (most historically authentic):
+        Bits 7-5 : opcode  (3 bits → 8 possible instructions)
+        Bits 4-0 : address (5 bits → 32 RAM addresses)
+        Each line in ROM.txt is one 8-bit instruction, e.g.: 00000011
+        Very constrained, exactly like the Manchester Baby (7 instructions, 32 words)
+
+      Option B — two-byte instruction:
+        Byte 1: opcode  (8 bits → up to 256 opcodes, we'd use ~8)
+        Byte 2: address (8 bits → 256 RAM addresses)
+        Each instruction is two consecutive lines in ROM.txt
+        More room to grow, slightly less authentic
+
+[Q02] I/O MODEL — how does the machine read input and write output?
+
+      Option A — extra files (memory-mapped style):
+        A reserved RAM address (e.g. address 0) is the I/O port.
+        Writing to it outputs a byte; reading from it consumes a byte.
+        Input comes from INPUT.txt, output appends to OUTPUT.txt.
+        Fully file-based, no console interaction.
+
+      Option B — console I/O:
+        IN  instruction reads one byte from stdin
+        OUT instruction writes one byte to stdout
+        Simpler to implement, breaks the "everything is a text file" purity.
+
+      Option C — no I/O in phase 1, add later
+
+[Q03] TEXT FILE FORMAT — how are bytes laid out in ROM.txt and RAM.txt?
+
+      Option A — one byte per line:
+        00000000
+        00000001
+        11001010
+        Easy to read, line number == address, very visual
+
+      Option B — bytes grouped with spaces (e.g. 8 bytes per row):
+        00000000 00000001 11001010 00110011 ...
+        More compact, closer to a traditional hex dump
+
+[Q04] RAM SIZE — how many bytes?
+      If we pick Option A for Q01 (5-bit address), RAM is naturally 32 bytes.
+      If we pick Option B for Q01 (8-bit address), RAM can be up to 256 bytes.
+      Do you want RAM size to match the address space, or be independent?
+
+================================================================================
+PROPOSED INSTRUCTION SET (draft — subject to Q01 answer)
+================================================================================
+
+Modeled on the Manchester Baby (1948), the first machine to run a stored program.
+The Baby had 7 instructions. We propose the same count:
+
+  Mnemonic  Opcode  Operation
+  --------  ------  ---------
+  LDA  a    000     ACC  ← RAM[a]           (load accumulator)
+  STA  a    001     RAM[a] ← ACC            (store accumulator)
+  ADD  a    010     ACC  ← ACC + RAM[a]     (add)
+  SUB  a    011     ACC  ← ACC - RAM[a]     (subtract)
+  JMP  a    100     PC   ← a                (unconditional jump)
+  JZ   a    101     if ACC == 0: PC ← a     (jump if zero)
+  JN   a    110     if ACC < 0:  PC ← a     (jump if negative / MSB set)
+  HLT        111     halt execution
+
+Note: the Manchester Baby only had SUB (no ADD), and its jump was "jump relative."
+We deviate slightly for clarity. This can be debated / adjusted.
+
+================================================================================
+ARCHITECTURE SNAPSHOT (pending Q01–Q04)
+================================================================================
+
+  Registers (internal to interpreter, NOT stored in files):
+    ACC  — 8-bit accumulator (the only general-purpose register)
+    PC   — program counter (points to current instruction in ROM.txt)
+
+  Files:
+    ROM.txt  — the program, written by the programmer, never changed at runtime
+    RAM.txt  — data memory, initialized before run, mutated during execution
+
+  Execution cycle (fetch → decode → execute):
+    1. Read byte(s) at PC from ROM.txt  →  fetch
+    2. Split into opcode + address      →  decode
+    3. Perform operation                →  execute
+    4. Increment PC (unless jump)       →  repeat
+
+================================================================================
+PHASE PLAN
+================================================================================
+
+  Phase 1 (current): Core VM
+    - Settle file format and instruction encoding (resolve Q01–Q04)
+    - Build the interpreter in C# (fetch/decode/execute loop)
+    - Write a hand-assembled "hello world" equivalent (e.g. compute 5+3, store result)
+    - Verify RAM.txt changes are visible and correct after execution
+
+  Phase 2: Assembler
+    - Build a simple text-to-binary assembler that takes human-readable mnemonics
+      and writes ROM.txt in the correct bit format
+    - Still no labels — pure address operands
+
+  Phase 3: Labels + Symbol Table
+    - Add named labels to the assembler (first step toward a real language)
+
+  Phase 4: (TBD based on what problems emerge in phases 1-3)
