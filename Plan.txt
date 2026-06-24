@@ -5,13 +5,15 @@ Last updated: 2026-06-23
 ================================================================================
 PROJECT GOAL
 ================================================================================
-Build a simple, educational virtual machine modeled on the earliest computers.
-Everything is traceable to the bit level. All state lives in plain text files
-so a person can open RAM.txt at any moment and see exactly what the machine
-holds — no debugger required, no binary blobs.
+Build a virtual machine that is a faithful (MSB-first) recreation of the
+Manchester Baby (SSEM, 1948) — the first stored-program computer.
+
+Everything is traceable to the bit level. All state lives in a single plain
+text file (STORE.txt) so a person can open it at any moment and see exactly
+what the machine holds — no debugger required, no binary blobs.
 
 Purpose: purely educational. The goal is to re-experience the thought patterns
-and constraints that early machine designers faced (circa 1948–1955).
+and constraints that early machine designers faced in 1948.
 
 ================================================================================
 LOCKED DECISIONS
@@ -19,121 +21,143 @@ LOCKED DECISIONS
 
 [D01] Implementation language: C#
 [D02] Purpose: educational/exploratory — no production use
-[D03] Memory unit: 8-bit byte
+[D03] Memory unit: 32-bit word (matching the real Manchester Baby)
 [D04] Bit representation: literal ASCII '0' and '1' characters in text files
-[D05] Two-file memory model:
-        ROM.txt  — the program (read-only during execution)
-        RAM.txt  — data/state (fixed size, mutated in-place during execution)
-[D06] RAM is fixed size — allocated once, never grows or shrinks
-[D07] Instruction style: accumulator machine (single accumulator register),
-      modeled loosely on Manchester Baby / EDSAC era (earliest real computers)
-[D08] Addressing: pure numeric (no named labels — phase 1)
+[D05] Bit ordering: MSB-first (leftmost character = bit 31, rightmost = bit 0)
+      Deviation from the real Baby, which was LSB-first. Chosen for readability.
+[D06] Unified store: one file (STORE.txt) holds both program and data
+      This matches the Baby's von Neumann architecture — no ROM/RAM split.
+      Programs and data share the same 32-word address space.
+      Self-modifying code is possible (as early programmers used in practice).
+[D07] Store size: 32 words × 32 bits = 1024 bits total (exact Baby spec)
+[D08] File layout: one word per line, line number (0-indexed) = address
+        Line 0  → address 0
+        Line 31 → address 31
+        Each line is exactly 32 ASCII characters ('0' or '1')
+[D09] Addressing: pure numeric — no named labels in phase 1
+[D10] I/O model: memory-mapped via reserved address 31
+        STO 31  → appends ACC to OUTPUT.txt (one 32-bit word per line)
+        LDN 31  → reads next word from INPUT.txt, negates it, loads into ACC
+        General-purpose store is therefore addresses 0–30 (31 usable words)
 
 ================================================================================
-OPEN QUESTIONS (to resolve before implementation)
+INSTRUCTION SET (exact Manchester Baby)
 ================================================================================
 
-[Q01] INSTRUCTION FORMAT — two candidates:
+Instruction encoding inside a 32-bit word (MSB-first):
+  Bits 31–16  (chars  0–15): spare — must be 0
+  Bits 15–13  (chars 16–18): function code (opcode), 3 bits
+  Bits 12– 5  (chars 19–26): spare — must be 0
+  Bits  4– 0  (chars 27–31): operand address S, 5 bits
 
-      Option A — packed single-byte instruction (most historically authentic):
-        Bits 7-5 : opcode  (3 bits → 8 possible instructions)
-        Bits 4-0 : address (5 bits → 32 RAM addresses)
-        Each line in ROM.txt is one 8-bit instruction, e.g.: 00000011
-        Very constrained, exactly like the Manchester Baby (7 instructions, 32 words)
+  Function  Binary  Mnemonic  Operation
+  --------  ------  --------  ---------
+     0       000    JMP  S    CI ← store[S]
+                              (set program counter to value stored at S)
+     1       001    JRP  S    CI ← CI + store[S]
+                              (jump relative: add store[S] to program counter)
+     2       010    LDN  S    ACC ← −store[S]
+                              (load NEGATED value — no plain load exists)
+     3       011    STO  S    store[S] ← ACC
+     4       100    SUB  S    ACC ← ACC − store[S]
+     5       101    SUB  S    duplicate of opcode 4 (historically present in Baby)
+     6       110    CMP       if ACC < 0: skip next instruction (CI incremented twice)
+                              (no address operand — address field is ignored)
+     7       111    STP       halt execution
 
-      Option B — two-byte instruction:
-        Byte 1: opcode  (8 bits → up to 256 opcodes, we'd use ~8)
-        Byte 2: address (8 bits → 256 RAM addresses)
-        Each instruction is two consecutive lines in ROM.txt
-        More room to grow, slightly less authentic
-
-[Q02] I/O MODEL — how does the machine read input and write output?
-
-      Option A — extra files (memory-mapped style):
-        A reserved RAM address (e.g. address 0) is the I/O port.
-        Writing to it outputs a byte; reading from it consumes a byte.
-        Input comes from INPUT.txt, output appends to OUTPUT.txt.
-        Fully file-based, no console interaction.
-
-      Option B — console I/O:
-        IN  instruction reads one byte from stdin
-        OUT instruction writes one byte to stdout
-        Simpler to implement, breaks the "everything is a text file" purity.
-
-      Option C — no I/O in phase 1, add later
-
-[Q03] TEXT FILE FORMAT — how are bytes laid out in ROM.txt and RAM.txt?
-
-      Option A — one byte per line:
-        00000000
-        00000001
-        11001010
-        Easy to read, line number == address, very visual
-
-      Option B — bytes grouped with spaces (e.g. 8 bytes per row):
-        00000000 00000001 11001010 00110011 ...
-        More compact, closer to a traditional hex dump
-
-[Q04] RAM SIZE — how many bytes?
-      If we pick Option A for Q01 (5-bit address), RAM is naturally 32 bytes.
-      If we pick Option B for Q01 (8-bit address), RAM can be up to 256 bytes.
-      Do you want RAM size to match the address space, or be independent?
+Key constraints imposed by this instruction set:
+  - No ADD instruction. Addition is done via double negation:
+      To compute A + B:
+        LDN A     ; ACC = -A
+        STO tmp   ; store -A
+        LDN tmp   ; ACC = -(-A) = A    [actually: LDN S negates, so we need different approach]
+      Correct approach:
+        LDN A     ; ACC = -A
+        SUB B     ; ACC = -A - B
+        STO tmp   ; tmp = -(A+B)
+        LDN tmp   ; ACC = A+B          ← 4 instructions to add two numbers
+  - No plain load. To load a positive value X, use LDN to get -X, then negate again.
+  - Conditional logic is "skip if negative" only — no jump-if-zero directly.
+  - JMP S jumps to the VALUE stored at S (indirect), not to address S directly.
 
 ================================================================================
-PROPOSED INSTRUCTION SET (draft — subject to Q01 answer)
+WORKED ENCODING EXAMPLE
 ================================================================================
 
-Modeled on the Manchester Baby (1948), the first machine to run a stored program.
-The Baby had 7 instructions. We propose the same count:
+Instruction: LDN 5  (load negative of store[5] into ACC)
+  Function = 2 = 010
+  Address  = 5 = 00101
+  Spare bits = 0
 
-  Mnemonic  Opcode  Operation
-  --------  ------  ---------
-  LDA  a    000     ACC  ← RAM[a]           (load accumulator)
-  STA  a    001     RAM[a] ← ACC            (store accumulator)
-  ADD  a    010     ACC  ← ACC + RAM[a]     (add)
-  SUB  a    011     ACC  ← ACC - RAM[a]     (subtract)
-  JMP  a    100     PC   ← a                (unconditional jump)
-  JZ   a    101     if ACC == 0: PC ← a     (jump if zero)
-  JN   a    110     if ACC < 0:  PC ← a     (jump if negative / MSB set)
-  HLT        111     halt execution
+  Bit layout (MSB-first, 32 bits):
+    Bits 31–16 (spare):     0000000000000000
+    Bits 15–13 (func=010):  010
+    Bits 12–5  (spare):     00000000
+    Bits  4–0  (addr=5):    00101
 
-Note: the Manchester Baby only had SUB (no ADD), and its jump was "jump relative."
-We deviate slightly for clarity. This can be debated / adjusted.
+  Full word: 00000000000000000100000000000101
+
+Instruction: STP (halt)
+  Function = 7 = 111, address field = 0 (ignored)
+  Full word: 00000000000000001110000000000000
 
 ================================================================================
-ARCHITECTURE SNAPSHOT (pending Q01–Q04)
+ARCHITECTURE SNAPSHOT
 ================================================================================
 
-  Registers (internal to interpreter, NOT stored in files):
-    ACC  — 8-bit accumulator (the only general-purpose register)
-    PC   — program counter (points to current instruction in ROM.txt)
+Registers (internal to C# interpreter — NOT stored in files):
+  ACC  — 32-bit signed integer (the accumulator, the only "register")
+  CI   — 5-bit program counter (Current Instruction address, 0–31)
+  PI   — 32-bit Present Instruction register (holds fetched word during decode)
 
-  Files:
-    ROM.txt  — the program, written by the programmer, never changed at runtime
-    RAM.txt  — data memory, initialized before run, mutated during execution
+Files:
+  STORE.txt   — 32 lines of 32 bits, unified program + data memory
+  INPUT.txt   — words consumed by LDN 31 (I/O port reads), one per line
+  OUTPUT.txt  — words written by STO 31 (I/O port writes), appended one per line
 
-  Execution cycle (fetch → decode → execute):
-    1. Read byte(s) at PC from ROM.txt  →  fetch
-    2. Split into opcode + address      →  decode
-    3. Perform operation                →  execute
-    4. Increment PC (unless jump)       →  repeat
+Execution cycle (exact Baby sequence):
+  1. CI increments first (CI = CI + 1)
+  2. Fetch: PI ← store[CI]
+  3. Decode: extract function (bits 15–13) and address S (bits 4–0) from PI
+  4. Execute: perform operation
+  5. Repeat until STP
+
+Note: the Baby increments CI BEFORE fetching, so execution starts at address 1,
+not 0. Address 0 is typically used for data. This is historically accurate.
+
+================================================================================
+C# PROJECT STRUCTURE
+================================================================================
+
+  BabyVM/
+  ├── BabyVM.csproj
+  ├── Program.cs        — entry point: loads files, runs machine, handles errors
+  ├── Machine.cs        — fetch/decode/execute loop, register state
+  ├── Store.cs          — reads and writes STORE.txt (32 x 32-bit words as bit strings)
+  └── examples/
+      └── add.txt       — first example: compute a simple sum, verify STORE.txt changes
 
 ================================================================================
 PHASE PLAN
 ================================================================================
 
-  Phase 1 (current): Core VM
-    - Settle file format and instruction encoding (resolve Q01–Q04)
-    - Build the interpreter in C# (fetch/decode/execute loop)
-    - Write a hand-assembled "hello world" equivalent (e.g. compute 5+3, store result)
-    - Verify RAM.txt changes are visible and correct after execution
+Phase 1 (current): Core VM
+  - Build Machine.cs, Store.cs, Program.cs
+  - Hand-encode a simple program into STORE.txt (e.g. load, negate, store)
+  - Run it and verify STORE.txt is mutated correctly
+  - Observe the Baby's quirks firsthand (no ADD, load-negative only, etc.)
 
-  Phase 2: Assembler
-    - Build a simple text-to-binary assembler that takes human-readable mnemonics
-      and writes ROM.txt in the correct bit format
-    - Still no labels — pure address operands
+Phase 2: Assembler
+  - Accept human-readable mnemonics (JMP, LDN, STO, SUB, JRP, CMP, STP)
+  - Output a valid STORE.txt
+  - Still pure numeric addresses
 
-  Phase 3: Labels + Symbol Table
-    - Add named labels to the assembler (first step toward a real language)
+Phase 3: Labels + Symbol Table
+  - Allow named labels in assembly source
+  - Assembler resolves them to numeric addresses
+  - First step toward a real language toolchain
 
-  Phase 4: (TBD based on what problems emerge in phases 1-3)
+Phase 4: (TBD — driven by what problems emerge in phases 1–3)
+  - Possible: a debugger that shows CI, ACC, and STORE.txt after each instruction
+  - Possible: step-through mode (press Enter to advance one instruction)
+  - Possible: extend word size or address space
