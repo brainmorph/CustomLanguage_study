@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "BabyVM",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/BabyVM/bin/Debug/net10.0/BabyVM.dll",
+            "args": ["STORE.txt"],
+            "cwd": "${workspaceFolder}/BabyVM",
+            "console": "internalConsole",
+            "stopAtEntry": false
+        }
+    ]
+}
