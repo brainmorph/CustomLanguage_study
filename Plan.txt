@@ -141,16 +141,41 @@ C# PROJECT STRUCTURE
 PHASE PLAN
 ================================================================================
 
-Phase 1 (current): Core VM
-  - Build Machine.cs, Store.cs, Program.cs
-  - Hand-encode a simple program into STORE.txt (e.g. load, negate, store)
-  - Run it and verify STORE.txt is mutated correctly
-  - Observe the Baby's quirks firsthand (no ADD, load-negative only, etc.)
+Phase 1 (COMPLETE): Core VM
+  - Built Machine.cs, Store.cs, MachineIO.cs, Program.cs
+  - Hand-encoded 3+4=7 into examples/add.txt
+  - Ran it; verified STORE.txt mutated correctly at addresses 22 and 23
+  - Observed the Baby's constraints firsthand (no ADD, load-negative only)
 
-Phase 2: Assembler
-  - Accept human-readable mnemonics (JMP, LDN, STO, SUB, JRP, CMP, STP)
-  - Output a valid STORE.txt
-  - Still pure numeric addresses
+Phase 2 (current): Assembler
+  Source file format (.asm):
+    - One statement per line
+    - Comments begin with ';' and extend to end of line
+    - Blank lines are ignored
+    - Mnemonics are case-insensitive
+
+  Instructions (mnemonics map directly to Baby opcodes):
+    JMP S   — opcode 0, requires address operand
+    JRP S   — opcode 1, requires address operand
+    LDN S   — opcode 2, requires address operand
+    STO S   — opcode 3, requires address operand
+    SUB S   — opcode 4, requires address operand
+    CMP     — opcode 6, no operand
+    STP     — opcode 7, no operand
+
+  Directives:
+    ORG n   — set address counter to n (decimal)
+    DAT n   — place signed decimal value n at current address
+
+  Operands: decimal integers only (phase 2); addresses must be 0–31
+
+  Usage (CLI):
+    BabyVM run      <store.txt> [input.txt] [output.txt]
+    BabyVM assemble <source.asm> <store.txt>
+
+  Files added:
+    Assembler.cs          — assembler logic
+    examples/add.asm      — human-readable version of the add program
 
 Phase 3: Labels + Symbol Table
   - Allow named labels in assembly source
