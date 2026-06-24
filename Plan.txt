@@ -35,10 +35,11 @@ LOCKED DECISIONS
         Line 31 → address 31
         Each line is exactly 32 ASCII characters ('0' or '1')
 [D09] Addressing: pure numeric — no named labels in phase 1
-[D10] I/O model: memory-mapped via reserved address 31
-        STO 31  → appends ACC to OUTPUT.txt (one 32-bit word per line)
-        LDN 31  → reads next word from INPUT.txt, negates it, loads into ACC
-        General-purpose store is therefore addresses 0–30 (31 usable words)
+[D10] No I/O. The unified store IS the I/O.
+        Pre-load input values into STORE.txt before running.
+        Read output by opening STORE.txt after STP.
+        This matches the real Baby — results were read from the CRT display,
+        which showed the raw bit pattern of the store. All 32 words are usable.
 
 ================================================================================
 INSTRUCTION SET (exact Manchester Baby)

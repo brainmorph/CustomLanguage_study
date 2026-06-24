@@ -20,9 +20,7 @@ internal static class Program
 
     private static int Run(string[] args)
     {
-        string storePath  = args.Length > 0 ? args[0] : "STORE.txt";
-        string inputPath  = args.Length > 1 ? args[1] : "INPUT.txt";
-        string outputPath = args.Length > 2 ? args[2] : "OUTPUT.txt";
+        string storePath = args.Length > 0 ? args[0] : "STORE.txt";
 
         if (!File.Exists(storePath))
             return Error($"Store file not found: {storePath}");
@@ -30,8 +28,7 @@ internal static class Program
         try
         {
             var store   = new Store(storePath);
-            var io      = new MachineIO(inputPath, outputPath);
-            var machine = new Machine(store, io);
+            var machine = new Machine(store);
             machine.Run();
             return 0;
         }
@@ -73,7 +70,7 @@ internal static class Program
         Console.WriteLine("BabyVM — Manchester Baby (SSEM 1948) emulator");
         Console.WriteLine();
         Console.WriteLine("Commands:");
-        Console.WriteLine("  run      <store.txt> [input.txt] [output.txt]  — execute a store file");
+        Console.WriteLine("  run      <store.txt>              — execute a store file");
         Console.WriteLine("  assemble <source.asm> <store.txt>              — assemble source to store file");
     }
 

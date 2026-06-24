@@ -12,18 +12,19 @@ namespace BabyVM;
 // Consequence: execution begins at address 1, not 0.
 // To jump to address N, store the value (N-1) at the jump target word,
 // because CI will be incremented once more before the next fetch.
+//
+// There is no I/O. All state lives in STORE.txt. "Output" is whatever
+// the store contains after STP — open STORE.txt to read the result.
 public class Machine
 {
     private readonly Store _store;
-    private readonly MachineIO _io;
 
     private int _acc;   // accumulator — the only register visible to programs
     private int _ci;    // current instruction (program counter), 5-bit (0–31)
 
-    public Machine(Store store, MachineIO io)
+    public Machine(Store store)
     {
         _store = store;
-        _io = io;
         _acc = 0;
         _ci = 0;  // first cycle increments to 1, so execution starts at address 1
     }
@@ -57,14 +58,11 @@ public class Machine
                     break;
 
                 case 2: // LDN S — ACC = -store[S]  (load negated — no plain load exists)
-                    _acc = s == 31 ? -_io.ReadInput() : -_store.Read(s);
+                    _acc = -_store.Read(s);
                     break;
 
                 case 3: // STO S — store[S] = ACC
-                    if (s == 31)
-                        _io.WriteOutput(_acc);
-                    else
-                        _store.Write(s, _acc);
+                    _store.Write(s, _acc);
                     break;
 
                 case 4: // SUB S — ACC -= store[S]
